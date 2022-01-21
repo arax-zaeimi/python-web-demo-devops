@@ -1,0 +1,129 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: default
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-webapp-service
+  namespace: default
+spec:
+  ports:
+  - port: 5000
+    protocol: TCP
+    targetPort: 5000
+  selector:
+    app: python-webapp-app
+  type: NodePort
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-webapp-service-2
+  namespace: default
+spec:
+  ports:
+  - port: 5000
+    protocol: TCP
+    targetPort: 5000
+  selector:
+    app: python-webapp-app-2
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: python-webapp-app
+  name: python-webapp-deploy
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: python-webapp-app
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: python-webapp-app
+    spec:
+      containers:
+      - image: gcr.io/mavencode-project/python-webapp-demo:47aa79432bddada754c65ae2e55956db3e2535c6
+        imagePullPolicy: Always
+        name: python-webapp-app
+        ports:
+        - containerPort: 5000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: python-webapp-app-2
+  name: python-webapp-deploy-2
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: python-webapp-app-2
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: python-webapp-app-2
+    spec:
+      containers:
+      - image: gcr.io/mavencode-project/python-webapp-demo_2:47aa79432bddada754c65ae2e55956db3e2535c6
+        imagePullPolicy: Always
+        name: python-webapp-app-2
+        ports:
+        - containerPort: 5000
+---
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: managed-cert
+  namespace: default
+spec:
+  domains:
+  - techarax.com
+  - www.techarax.com
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: python-webapp-ip-static
+    networking.gke.io/managed-certificates: managed-cert
+  name: python-webapp-ingress
+  namespace: default
+spec:
+  rules:
+  - host: techarax.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: python-webapp-service
+            port:
+              number: 5000
+        path: /*
+        pathType: ImplementationSpecific
+      - backend:
+          service:
+            name: python-webapp-service-2
+            port:
+              number: 5000
+        path: /v2/*
+        pathType: ImplementationSpecific

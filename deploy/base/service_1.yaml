@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-webapp-service
+spec:
+  ports:
+    - port: 5000
+      protocol: TCP
+      targetPort: 5000
+  # the selector is used to link pods to services
+  selector:
+    app: python-webapp-app
+  type: NodePort

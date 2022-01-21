@@ -1,0 +1,104 @@
+name: Build and Deploy to GKE
+
+on:
+  # Trigger the workflow on push or pull request,
+  # but only for the main branch
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GKE_PROJECT }}
+  REGISTRY_HOSTNAME: gcr.io
+  GITHUB_SHA: ${{ github.sha }}
+  GITHUB_REF: ${{ github.ref }}
+  ## Define the image name
+  IMAGE_NAME: gcr.io/${{ secrets.GKE_PROJECT }}/${{ secrets.GCP_APP_NAME }}
+  IMAGE_NAME_2: gcr.io/${{ secrets.GKE_PROJECT }}/${{ secrets.GCP_APP_NAME }}_2
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  setup-build-publish:
+    name: Setup, Build, Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      # Setup gcloud CLI
+      - uses: google-github-actions/setup-gcloud@94337306dda8180d967a56932ceb4ddcf01edae7
+        with:
+          service_account_key: ${{ secrets.GKE_SA_KEY }}
+          project_id: ${{ secrets.GKE_PROJECT }}
+
+      # Configure Docker to use the gcloud command-line tool as a credential
+      # helper for authentication
+      - run: |-
+          gcloud --quiet auth configure-docker
+
+      # Build the Docker image
+      - name: Build App 1
+        run: |
+          docker build -t "$IMAGE_NAME":"$IMAGE_TAG" \
+            --build-arg GITHUB_SHA="$GITHUB_SHA" \
+            --build-arg GITHUB_REF="$GITHUB_REF" -f dockerfile_server1 .
+
+      # Push the Docker image to Google Container Registry
+      - name: Publish App 1
+        run: |-
+          docker push "$IMAGE_NAME":"$IMAGE_TAG"
+          docker tag "$IMAGE_NAME":"$IMAGE_TAG" "$IMAGE_NAME":latest
+          docker push "$IMAGE_NAME":latest
+
+      # Build the Docker image
+      - name: Build App 2
+        run: |
+          docker build -t "$IMAGE_NAME_2":"$IMAGE_TAG" \
+            --build-arg GITHUB_SHA="$GITHUB_SHA" \
+            --build-arg GITHUB_REF="$GITHUB_REF" -f dockerfile_server2 .
+
+      # Push the Docker image to Google Container Registry
+      - name: Publish App 2
+        run: |-
+          docker push "$IMAGE_NAME_2":"$IMAGE_TAG"
+          docker tag "$IMAGE_NAME_2":"$IMAGE_TAG" "$IMAGE_NAME_2":latest
+          docker push "$IMAGE_NAME_2":latest
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: setup-build-publish
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      # Set up kustomize
+      - name: Set up Kustomize
+        run: |-
+          curl -sfLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/v3.1.0/kustomize_3.1.0_linux_amd64
+          chmod u+x ./kustomize
+
+      # Replacing image tag in k8s manifests
+      - name: Update Kubernetes resources
+        run: |
+          cd deploy/overlays/dev
+          kustomize edit set image python-webapp/webapp:1.0.0=$IMAGE_NAME:$IMAGE_TAG
+          kustomize edit set image python-webapp-2/webapp:1.0.0=$IMAGE_NAME_2:$IMAGE_TAG
+          kustomize build . > ../../../pipeline/dev/manifest.yaml
+
+      - name: Commit files
+        run: |
+
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add -A
+          git commit -m "[automated Commit] updated docker tag"
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}

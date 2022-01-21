@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - deployment_service2.yaml
+  - service_1.yaml
+  - service_2.yaml
+  - ingress.yaml
+  - managed_cert.yaml
